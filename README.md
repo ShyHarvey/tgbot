@@ -5,7 +5,6 @@ A Node.js Telegram bot that automatically forwards messages from a notification 
 ## Features
 
 - 🤖 **Automatic message forwarding** from a notification channel to multiple chats
-- 🔄 **Auto-detection** of notification channel when bot is added as admin
 - 📝 **Persistent storage** of target chat IDs
 - 🔧 **Easy management commands** for adding/removing target chats
 - 📊 **Status monitoring** and statistics with chat names
@@ -61,11 +60,14 @@ A Node.js Telegram bot that automatically forwards messages from a notification 
    AUTHORIZED_USERS=659506887,659506888,659506889
    ```
 
-### 3. Add Bot to Your Channel
+### 3. Configure Notification Channel
 
-1. Go to your notification channel
-2. Add your bot as an administrator with "Post Messages" permission
-3. **The bot will automatically detect this channel as the notification source**
+1. Get your channel ID by forwarding a message from the channel to [@userinfobot](https://t.me/userinfobot)
+2. Add the channel ID to your `.env` file:
+   ```env
+   NOTIFICATION_CHANNEL_ID=-1001234567890
+   ```
+3. Add your bot as an administrator to the channel with "Post Messages" permission
 
 ### 4. Start the Bot
 
@@ -97,7 +99,7 @@ npm start
 
 ### How It Works
 
-1. **Auto-detection**: When you add the bot as admin to a channel, it automatically becomes the notification source
+1. **Configuration**: The notification channel is specified via `NOTIFICATION_CHANNEL_ID` in `.env` file
 2. **Message forwarding**: Messages posted in the notification channel are automatically forwarded to all target chats
 3. **Persistent storage**: Target chats are stored in `target_chats.json`
 4. **Error handling**: Invalid chat IDs are automatically removed when forwarding fails
@@ -111,7 +113,7 @@ npm start
 |----------|-------------|---------|----------|
 | `BOT_TOKEN` | Your Telegram bot token | - | ✅ |
 | `AUTHORIZED_USERS` | Comma-separated list of authorized user IDs | - | ⚠️ |
-| `NOTIFICATION_CHANNEL_ID` | Channel ID to forward from | Auto-detected | ❌ |
+| `NOTIFICATION_CHANNEL_ID` | Channel ID to forward from | - | ✅ |
 | `TARGET_CHATS_FILE` | File to store target chats | `target_chats.json` | ❌ |
 | `LOG_LEVEL` | Logging level | `info` | ❌ |
 | `POLLING_TIMEOUT` | Polling timeout (ms) | `30000` | ❌ |
@@ -125,9 +127,9 @@ npm start
 - Example: `AUTHORIZED_USERS=659506887,659506888,659506889`
 
 #### Notification Channel
-- The bot automatically detects the notification channel when added as admin
-- No manual configuration required
-- The last channel where the bot is added as admin becomes the notification source
+- The notification channel must be manually configured via `NOTIFICATION_CHANNEL_ID` in `.env` file
+- The bot will no longer automatically change the notification channel
+- To change the notification channel, update `.env` file and restart the bot
 
 ### File Structure
 
@@ -184,16 +186,16 @@ The bot provides detailed console logs for debugging:
 
 - **User Authorization**: Only authorized users can manage the bot
 - **Environment-based Configuration**: Authorized users configured via environment variables
-- **Auto-detection**: Secure automatic channel detection
+- **Static Configuration**: Notification channel configured once via environment variables
 - **Error Handling**: Automatic cleanup of invalid chat IDs
 - **No Message Storage**: Bot only forwards messages, doesn't store content
 
 ## Advanced Features
 
-### Auto-detection System
-- Automatically detects notification channel when bot is added as admin
-- No manual channel ID configuration required
-- Supports dynamic channel switching
+### Static Configuration
+- Notification channel is configured once via environment variables
+- No automatic channel switching - provides stability and predictability
+- Manual control over which channel serves as the notification source
 
 ### Enhanced Status Display
 - Shows channel names instead of just IDs

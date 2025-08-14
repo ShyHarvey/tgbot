@@ -60,40 +60,6 @@ function isUserAuthorized(userId) {
     return authorizedUsers.has(userId);
 }
 
-// Set notification channel
-async function setNotificationChannel(channelId, channelTitle) {
-    try {
-        // Update .env file
-        const envPath = '.env';
-        let envContent = '';
-        
-        if (fs.existsSync(envPath)) {
-            envContent = fs.readFileSync(envPath, 'utf8');
-        }
-        
-        // Replace or add NOTIFICATION_CHANNEL_ID
-        const channelIdLine = `NOTIFICATION_CHANNEL_ID=${channelId}`;
-        if (envContent.includes('NOTIFICATION_CHANNEL_ID=')) {
-            envContent = envContent.replace(/NOTIFICATION_CHANNEL_ID=.*/g, channelIdLine);
-        } else {
-            envContent += `\n${channelIdLine}`;
-        }
-        
-        fs.writeFileSync(envPath, envContent);
-        
-        // Update config
-        config.NOTIFICATION_CHANNEL_ID = channelId.toString();
-        
-        console.log(`✅ Notification channel set to: ${channelId} (${channelTitle})`);
-        console.log(`📝 Updated .env file`);
-        
-        return true;
-    } catch (error) {
-        console.error('Error setting notification channel:', error);
-        return false;
-    }
-}
-
 // Forward message to all target chats
 async function forwardMessage(message) {
     console.log(`\n🔄 forwardMessage called with:`, {
@@ -150,12 +116,12 @@ bot.on('message', async (message) => {
 
     console.log(`Received message from ${chatType} ${chatId} (${fromUser?.username || fromUser?.first_name || 'Unknown'})`);
 
-    // Check if message is from the notification channel
-    if (chatId.toString() === config.NOTIFICATION_CHANNEL_ID.toString()) {
-        console.log('Message from notification channel, forwarding...');
-        await forwardMessage(message);
-        return;
-    }
+    // Check if message is from the configured notification channel
+if (chatId.toString() === config.NOTIFICATION_CHANNEL_ID.toString()) {
+    console.log('Message from notification channel, forwarding...');
+    await forwardMessage(message);
+    return;
+}
 
     // Handle commands from private chats and groups
     if (chatType === 'private' || chatType === 'group' || chatType === 'supergroup') {
@@ -179,6 +145,8 @@ Commands:
 /help - Show this help message
 
 To add this chat as a target, send /add
+
+Note: The notification channel is configured via NOTIFICATION_CHANNEL_ID in .env file
             `;
             await bot.sendMessage(chatId, welcomeMessage);
         }
@@ -253,7 +221,7 @@ To add this chat as a target, send /add
 • Notification channel: ${channelInfo}
 • Bot is running: ✅
 
-Auto-detection: ${config.NOTIFICATION_CHANNEL_ID ? '✅ Active' : '❌ No channel set'}
+Configuration: ${config.NOTIFICATION_CHANNEL_ID ? '✅ Set via .env' : '❌ Not configured'}
             `;
             await bot.sendMessage(chatId, status);
         }
@@ -310,15 +278,15 @@ Admin Commands (Authorized users only):
 /auth list - Show authorized users
 
 How it works:
-1. Add this bot to your notification channel as an admin
-2. The bot will automatically set this channel as the notification source
+1. Set NOTIFICATION_CHANNEL_ID in your .env file to specify the source channel
+2. Add this bot to your notification channel as an admin
 3. Use /add in any chat (private, group, or channel) to add it as a target
 4. Messages from the notification channel will be automatically forwarded to all target chats
 
-Auto-detection:
-- The last channel where you add the bot as admin becomes the notification channel
-- Each time you add the bot to a new channel as admin, it becomes the new notification channel
-- Simply add the bot to any channel as admin to make it the notification source
+Configuration:
+- NOTIFICATION_CHANNEL_ID must be set manually in .env file
+- The bot will no longer automatically change the notification channel
+- To change the notification channel, update .env file and restart the bot
 
 Security:
 - Only authorized users can use admin commands
@@ -343,52 +311,23 @@ bot.on('channel_post', async (post) => {
 
     console.log(`Received channel post from ${chatType} ${chatId} (${post.chat.title || 'Unknown Channel'})`);
 
-    // Check if post is from the notification channel
-    console.log(`🔍 Comparing: chatId=${chatId} (${typeof chatId}) vs config=${config.NOTIFICATION_CHANNEL_ID} (${typeof config.NOTIFICATION_CHANNEL_ID})`);
-    
-    if (chatId.toString() === config.NOTIFICATION_CHANNEL_ID.toString()) {
-        console.log('🎯 Channel post from notification channel, forwarding...');
-        console.log(`📝 Post content: ${post.text || '[No text]'}`);
-        console.log(`📝 Post ID: ${post.message_id}`);
-        await forwardMessage(post);
-        return;
-    } else {
-        console.log(`⚠️ Channel post from different channel: ${chatId} (expected: ${config.NOTIFICATION_CHANNEL_ID})`);
-    }
+    // Check if post is from the configured notification channel
+console.log(`🔍 Comparing: chatId=${chatId} (${typeof chatId}) vs config=${config.NOTIFICATION_CHANNEL_ID} (${typeof config.NOTIFICATION_CHANNEL_ID})`);
+
+if (chatId.toString() === config.NOTIFICATION_CHANNEL_ID.toString()) {
+    console.log('🎯 Channel post from notification channel, forwarding...');
+    console.log(`📝 Post content: ${post.text || '[No text]'}`);
+    console.log(`📝 Post ID: ${post.message_id}`);
+    await forwardMessage(post);
+    return;
+} else {
+    console.log(`⚠️ Channel post from different channel: ${chatId} (expected: ${config.NOTIFICATION_CHANNEL_ID})`);
+}
 });
 
-// Handle bot status updates (when bot is added/removed from chats)
-bot.on('my_chat_member', async (chatMember) => {
-    const chatId = chatMember.chat.id;
-    const chatType = chatMember.chat.type;
-    const newStatus = chatMember.new_chat_member.status;
-    const oldStatus = chatMember.old_chat_member?.status || 'none';
-
-    console.log(`🤖 Bot status changed in ${chatType} ${chatId} (${chatMember.chat.title || 'Unknown'})`);
-    console.log(`   Status: ${oldStatus} → ${newStatus}`);
-
-    // If bot was added as admin to a channel
-    if (chatType === 'channel' && newStatus === 'administrator') {
-        console.log('🎯 Bot added as admin to channel - setting as notification channel...');
-        
-        try {
-            await setNotificationChannel(chatId, chatMember.chat.title);
-        } catch (error) {
-            console.error('Error handling channel admin addition:', error);
-        }
-    }
-    
-    // If bot was removed from a channel
-    if (chatType === 'channel' && oldStatus === 'administrator' && newStatus !== 'administrator') {
-        console.log('❌ Bot removed from channel admin');
-        
-        // If this was the notification channel, clear it
-        if (chatId.toString() === config.NOTIFICATION_CHANNEL_ID.toString()) {
-            console.log('⚠️ Bot was removed from notification channel!');
-            console.log('   Please add bot to another channel as admin or set notification channel manually');
-        }
-    }
-});
+// Note: NOTIFICATION_CHANNEL_ID is now set manually via .env file
+// The bot will no longer automatically change the notification channel
+// when added to other chats as admin
 
 // Handle errors
 bot.on('error', (error) => {
@@ -413,8 +352,13 @@ async function startBot() {
         // Get bot info
         const botInfo = await bot.getMe();
         console.log(`Bot started: @${botInfo.username} (${botInfo.first_name})`);
-        console.log(`Notification channel ID: ${config.NOTIFICATION_CHANNEL_ID}`);
+        console.log(`Notification channel ID: ${config.NOTIFICATION_CHANNEL_ID || 'Not configured'}`);
         console.log(`Target chats loaded: ${targetChats.size}`);
+        
+        if (!config.NOTIFICATION_CHANNEL_ID) {
+            console.log('⚠️  Warning: NOTIFICATION_CHANNEL_ID not set in .env file');
+            console.log('   Please set NOTIFICATION_CHANNEL_ID in your .env file and restart the bot');
+        }
         
         console.log('✅ Bot is running and ready to forward messages!');
     } catch (error) {
