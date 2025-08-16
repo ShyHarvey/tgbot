@@ -27,42 +27,99 @@ app.get('/health', (req, res) => {
 });
 
 // Start HTTP server first
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`🚀 HTTP server listening on port ${PORT}`);
     console.log(`📱 Health check available at: http://localhost:${PORT}/health`);
     
     // Start the bot in a separate process
     if (process.env.BOT_TOKEN) {
-        console.log('🤖 Starting Telegram Bot in separate process...');
-        
+        // Start bot process
+        console.log('🤖 Starting bot process...');
         const botProcess = spawn('node', ['bot.js'], {
-            stdio: 'inherit',
-            detached: false
+            stdio: 'pipe',
+            env: process.env
         });
-        
-        botProcess.on('error', (error) => {
-            console.error('❌ Failed to start Telegram Bot process:', error.message);
-            console.log('💡 The HTTP server is still running for health checks');
+
+        // Log bot process info
+        console.log(`📊 Bot process started with PID: ${botProcess.pid}`);
+
+        // Handle bot process output
+        botProcess.stdout.on('data', (data) => {
+            console.log(`🤖 Bot: ${data.toString().trim()}`);
         });
-        
-        botProcess.on('exit', (code) => {
+
+        botProcess.stderr.on('data', (data) => {
+            console.error(`🤖 Bot Error: ${data.toString().trim()}`);
+        });
+
+        // Handle bot process exit
+        botProcess.on('exit', (code, signal) => {
+            console.log(`�� Bot process exited with code ${code} and signal ${signal}`);
+            
             if (code !== 0) {
-                console.log(`⚠️  Bot process exited with code ${code}`);
-                console.log('💡 The HTTP server is still running for health checks');
+                console.log('⚠️  Bot process exited with error, but HTTP server continues running');
+                console.log('💡 Check bot logs for details. Bot will need manual restart.');
             }
         });
-        
-        // Handle process termination
+
+        // Handle bot process errors
+        botProcess.on('error', (error) => {
+            console.error('❌ Bot process error:', error);
+            console.log('⚠️  Bot process failed, but HTTP server continues running');
+            console.log('💡 Bot will need manual restart');
+        });
+
+        // Graceful shutdown
         process.on('SIGINT', () => {
             console.log('\n🛑 Shutting down...');
-            botProcess.kill('SIGINT');
-            process.exit(0);
+            
+            // Stop HTTP server
+            server.close(() => {
+                console.log('✅ HTTP server stopped');
+                
+                // Kill bot process
+                if (botProcess && !botProcess.killed) {
+                    console.log('🛑 Stopping bot process...');
+                    botProcess.kill('SIGTERM');
+                    
+                    // Force kill after 5 seconds if not stopped
+                    setTimeout(() => {
+                        if (botProcess && !botProcess.killed) {
+                            console.log('💀 Force killing bot process...');
+                            botProcess.kill('SIGKILL');
+                        }
+                        process.exit(0);
+                    }, 5000);
+                } else {
+                    process.exit(0);
+                }
+            });
         });
-        
+
         process.on('SIGTERM', () => {
-            console.log('\n🛑 Shutting down...');
-            botProcess.kill('SIGTERM');
-            process.exit(0);
+            console.log('\n🛑 Received SIGTERM...');
+            
+            // Stop HTTP server
+            server.close(() => {
+                console.log('✅ HTTP server stopped');
+                
+                // Kill bot process
+                if (botProcess && !botProcess.killed) {
+                    console.log('🛑 Stopping bot process...');
+                    botProcess.kill('SIGTERM');
+                    
+                    // Force kill after 5 seconds if not stopped
+                    setTimeout(() => {
+                        if (botProcess && !botProcess.killed) {
+                            console.log('💀 Force killing bot process...');
+                            botProcess.kill('SIGKILL');
+                        }
+                        process.exit(0);
+                    }, 5000);
+                } else {
+                    process.exit(0);
+                }
+            });
         });
         
     } else {

@@ -5,8 +5,22 @@ const path = require('path');
 // Configuration
 const config = require('./config');
 
-// Create bot instance
-const bot = new TelegramBot(config.BOT_TOKEN, { polling: true });
+// Process ID for logging
+const processId = process.pid;
+const processStartTime = new Date().toISOString();
+
+console.log(`🚀 Starting bot process ${processId} at ${processStartTime}`);
+
+// Create bot instance with unique polling options
+const bot = new TelegramBot(config.BOT_TOKEN, { 
+    polling: true,
+    // Add unique polling options to prevent conflicts
+    polling_options: {
+        timeout: 10,
+        limit: 100,
+        allowed_updates: ['message', 'channel_post', 'new_chat_members', 'left_chat_member']
+    }
+});
 
 // Store for target chat IDs
 let targetChats = new Set();
@@ -289,7 +303,7 @@ Note: The notification channel is configured via NOTIFICATION_CHANNEL_ID in .env
             }
         }
         else if (text === '/status') {
-            console.log('📊 Processing /status command...');
+            console.log('�� Processing /status command...');
             if (!isAuthorized) {
                 console.log('❌ User not authorized for /status command');
                 try {
@@ -454,7 +468,7 @@ bot.on('error', (error) => {
 });
 
 bot.on('polling_error', (error) => {
-    console.error('❌ Polling error:', error);
+    console.error(`❌ Polling error in process ${processId}:`, error);
     console.error('Polling error details:', {
         message: error.message,
         code: error.code,
@@ -464,18 +478,53 @@ bot.on('polling_error', (error) => {
         } : 'No response'
     });
     
-    // Don't exit on polling errors, just log them
-    console.log('⚠️  Polling error occurred, but bot will continue running...');
+    // Handle specific error types
+    if (error.code === 'ETELEGRAM' && error.response && error.response.statusCode === 409) {
+        console.log('⚠️  Conflict detected - another bot instance is running');
+        console.log('🔄 Attempting to restart polling in 5 seconds...');
+        
+        setTimeout(async () => {
+            try {
+                console.log('🔄 Restarting polling...');
+                await bot.stopPolling();
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+                await bot.startPolling();
+                console.log('✅ Polling restarted successfully');
+            } catch (restartError) {
+                console.error('❌ Failed to restart polling:', restartError.message);
+                console.log('🔄 Will try again in 10 seconds...');
+                
+                setTimeout(async () => {
+                    try {
+                        console.log('🔄 Second attempt to restart polling...');
+                        await bot.stopPolling();
+                        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+                        await bot.startPolling();
+                        console.log('✅ Polling restarted on second attempt');
+                    } catch (secondError) {
+                        console.error('❌ Failed to restart polling on second attempt:', secondError.message);
+                        console.log('💀 Bot polling failed completely - manual restart required');
+                    }
+                }, 10000);
+            }
+        }, 5000);
+    } else {
+        // Don't exit on other polling errors, just log them
+        console.log('⚠️  Polling error occurred, but bot will continue running...');
+    }
 });
 
 // Initialize bot
 async function startBot() {
     try {
-        console.log('🤖 Starting Telegram Message Forwarding Bot...');
+        console.log(`🤖 Starting Telegram Message Forwarding Bot (Process ${processId})...`);
+        console.log(`⏰ Process started at: ${processStartTime}`);
         console.log('🔍 Configuration check:');
         console.log(`   BOT_TOKEN: ${config.BOT_TOKEN ? '✅ Set' : '❌ Not set'}`);
         console.log(`   NOTIFICATION_CHANNEL_ID: ${config.NOTIFICATION_CHANNEL_ID || '❌ Not set'}`);
         console.log(`   TARGET_CHATS_FILE: ${config.TARGET_CHATS_FILE}`);
+        console.log(`   MAX_TARGET_CHATS: ${config.MAX_TARGET_CHATS}`);
+        console.log(`   AUTHORIZED_USERS: ${config.AUTHORIZED_USERS.length > 0 ? '✅ Configured' : '❌ Not configured'}`);
         
         // Load existing target chats
         console.log('📂 Loading target chats...');
@@ -497,6 +546,7 @@ async function startBot() {
         
         console.log(`📋 Notification channel ID: ${config.NOTIFICATION_CHANNEL_ID || 'Not configured'}`);
         console.log(`📋 Target chats loaded: ${targetChats.size}`);
+        console.log(`👥 Authorized users loaded: ${authorizedUsers.size}`);
         
         if (!config.NOTIFICATION_CHANNEL_ID) {
             console.log('⚠️  Warning: NOTIFICATION_CHANNEL_ID not set in .env file');
@@ -504,11 +554,11 @@ async function startBot() {
         }
         
         console.log('🚀 Starting polling...');
-        console.log('✅ Bot is running and ready to forward messages!');
+        console.log(`✅ Bot is running and ready to forward messages! (Process ${processId})`);
         console.log('💡 Send /start to the bot to test if it\'s working');
         
     } catch (error) {
-        console.error('❌ Failed to start bot:', error);
+        console.error(`❌ Failed to start bot in process ${processId}:`, error);
         console.error('Error details:', {
             message: error.message,
             code: error.code,
@@ -525,16 +575,42 @@ async function startBot() {
 }
 
 // Handle graceful shutdown
-process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down bot...');
-    bot.stopPolling();
+process.on('SIGINT', async () => {
+    console.log(`\n🛑 Shutting down bot process ${processId}...`);
+    try {
+        await bot.stopPolling();
+        console.log(`✅ Bot polling stopped for process ${processId}`);
+    } catch (error) {
+        console.error(`❌ Error stopping bot polling:`, error.message);
+    }
     process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-    console.log('\n🛑 Shutting down bot...');
-    bot.stopPolling();
+process.on('SIGTERM', async () => {
+    console.log(`\n🛑 Received SIGTERM for process ${processId}...`);
+    try {
+        await bot.stopPolling();
+        console.log(`✅ Bot polling stopped for process ${processId}`);
+    } catch (error) {
+        console.error(`❌ Error stopping bot polling:`, error.message);
+    }
     process.exit(0);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error(`💀 Uncaught Exception in process ${processId}:`, error);
+    console.error('Stack trace:', error.stack);
+    // Don't exit immediately, try to continue
+    console.log('⚠️  Uncaught exception occurred, but bot will continue running...');
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    console.error(`💀 Unhandled Rejection in process ${processId}:`, reason);
+    console.error('Promise:', promise);
+    // Don't exit immediately, try to continue
+    console.log('⚠️  Unhandled rejection occurred, but bot will continue running...');
 });
 
 // Start the bot
