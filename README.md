@@ -1,10 +1,11 @@
 # Telegram Message Forwarding Bot
 
-A Node.js Telegram bot that automatically forwards messages from a notification channel to multiple target chats with advanced security features.
+A Node.js Telegram bot that automatically forwards messages from a notification channel to multiple target chats with advanced security features and HTTP health monitoring.
 
 ## Features
 
 - 🤖 **Automatic message forwarding** from a notification channel to multiple chats
+- 🌐 **HTTP health monitoring** with Express server for deployment platforms
 - 📝 **Persistent storage** of target chat IDs
 - 🔧 **Easy management commands** for adding/removing target chats
 - 📊 **Status monitoring** and statistics with chat names
@@ -12,6 +13,8 @@ A Node.js Telegram bot that automatically forwards messages from a notification 
 - ⚙️ **Configurable** via environment variables
 - 🧪 **Test commands** for debugging and verification
 - 🔍 **Enhanced logging** for troubleshooting
+- 🚀 **Deployment ready** - includes health check endpoints
+- 🛠️ **Robust error handling** with automatic cleanup of invalid chats
 
 ## Prerequisites
 
@@ -35,7 +38,9 @@ A Node.js Telegram bot that automatically forwards messages from a notification 
 4. Edit `.env` file with your configuration:
    ```env
    BOT_TOKEN=your_bot_token_here
+   NOTIFICATION_CHANNEL_ID=-1001234567890
    AUTHORIZED_USERS=659506887,659506888,659506889
+   PORT=3000
    ```
 
 ## Setup Instructions
@@ -75,6 +80,25 @@ A Node.js Telegram bot that automatically forwards messages from a notification 
 npm start
 ```
 
+The bot will start both an HTTP server (for health monitoring) and the Telegram bot in separate processes.
+
+## Architecture
+
+### Dual Process Design
+- **HTTP Server**: Express server running on port 3000 (or `PORT` env variable)
+- **Bot Process**: Telegram bot running in a separate Node.js process
+- **Health Monitoring**: Built-in endpoints for deployment platform health checks
+
+### How It Works
+- **Telegram Bot**: Uses polling mode to receive updates from Telegram API
+- **HTTP Server**: Provides health check endpoints for deployment platforms
+- **Message Forwarding**: Bot forwards messages from notification channel to target chats
+- **Process Separation**: Bot runs independently from HTTP server for stability
+
+### HTTP Endpoints
+- `GET /` - Main status page with bot information
+- `GET /health` - Simple health check endpoint for deployment platforms
+
 ## Usage
 
 ### Adding Target Chats
@@ -104,6 +128,7 @@ npm start
 3. **Persistent storage**: Target chats are stored in `target_chats.json`
 4. **Error handling**: Invalid chat IDs are automatically removed when forwarding fails
 5. **Security**: Only authorized users can manage the bot
+6. **Health monitoring**: HTTP server provides health check endpoints for deployment platforms
 
 ## Configuration
 
@@ -112,11 +137,11 @@ npm start
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `BOT_TOKEN` | Your Telegram bot token | - | ✅ |
-| `AUTHORIZED_USERS` | Comma-separated list of authorized user IDs | - | ⚠️ |
 | `NOTIFICATION_CHANNEL_ID` | Channel ID to forward from | - | ✅ |
+| `AUTHORIZED_USERS` | Comma-separated list of authorized user IDs | - | ⚠️ |
+| `PORT` | HTTP server port | `3000` | ❌ |
 | `TARGET_CHATS_FILE` | File to store target chats | `target_chats.json` | ❌ |
 | `LOG_LEVEL` | Logging level | `info` | ❌ |
-| `POLLING_TIMEOUT` | Polling timeout (ms) | `30000` | ❌ |
 | `MAX_TARGET_CHATS` | Maximum target chats | `100` | ❌ |
 
 ### Security Configuration
@@ -135,14 +160,33 @@ npm start
 
 ```
 tgbot/
-├── bot.js              # Main bot file
+├── server.js           # HTTP server and bot process manager
+├── bot.js              # Main bot logic
 ├── config.js           # Configuration
 ├── package.json        # Dependencies
 ├── env.example         # Environment template
 ├── .env               # Your environment variables (create this)
 ├── target_chats.json  # Target chats storage (auto-created)
+├── setup.js           # Setup utility
+├── debug.js           # Debug utilities
+├── test_channel.js    # Channel testing utilities
 └── README.md          # This file
 ```
+
+## Deployment
+
+### Platform Compatibility
+This bot is designed to work with deployment platforms that require HTTP endpoints:
+- **Heroku**: Automatically uses `PORT` environment variable
+- **Railway**: Health check endpoint at `/health`
+- **Render**: HTTP server prevents timeout issues
+- **DigitalOcean App Platform**: Compatible with health checks
+
+### Health Monitoring
+- **Main endpoint**: `GET /` - Returns JSON with bot status
+- **Health check**: `GET /health` - Returns simple "OK" response
+- **Automatic cleanup**: Invalid chat IDs are automatically removed
+- **Process management**: Bot runs in separate process for stability
 
 ## Troubleshooting
 
@@ -157,55 +201,67 @@ tgbot/
    - Ensure target chats haven't blocked the bot
    - Check that the bot has permission to send messages
    - Use `/test` command to verify bot permissions
+   - Invalid chats are automatically removed from target list
 
 3. **Bot not starting**
    - Verify your bot token is correct
-   - Check that `AUTHORIZED_USERS` is properly formatted
+   - Check that `NOTIFICATION_CHANNEL_ID` is properly set
    - Ensure all required environment variables are set
+   - Check HTTP server logs for detailed error information
 
 4. **Commands not working**
    - Check if you're in the authorized users list
    - Use `/auth list` to see current authorized users
    - Verify your user ID with `/test` command
 
+5. **HTTP server issues**
+   - Check if port 3000 (or your custom PORT) is available
+   - Verify Express dependency is installed
+   - Check server logs for connection errors
+
 ### Debugging Commands
 
 - `/test` - Test bot functionality and get chat information
 - `/status` - Show detailed bot status including channel name
 - `/list` - Show all target chats with their names
+- `/auth list` - Show authorized users
 
 ### Logs
 
 The bot provides detailed console logs for debugging:
-- Message reception and channel detection
-- Forwarding attempts and results
-- Authorization checks
-- Error messages and chat management operations
+- **HTTP Server**: Port binding, health check requests
+- **Bot Process**: Message reception, channel detection, forwarding
+- **Error Handling**: Detailed error messages with status codes
+- **Chat Management**: Authorization checks, chat operations
 
 ## Security Features
 
 - **User Authorization**: Only authorized users can manage the bot
-- **Environment-based Configuration**: Authorized users configured via environment variables
+- **Environment-based Configuration**: Sensitive data stored in environment variables
 - **Static Configuration**: Notification channel configured once via environment variables
 - **Error Handling**: Automatic cleanup of invalid chat IDs
 - **No Message Storage**: Bot only forwards messages, doesn't store content
+- **Process Isolation**: Bot runs in separate process from HTTP server
 
 ## Advanced Features
 
-### Static Configuration
-- Notification channel is configured once via environment variables
-- No automatic channel switching - provides stability and predictability
-- Manual control over which channel serves as the notification source
+### Robust Error Handling
+- **Automatic cleanup**: Invalid chat IDs are automatically removed
+- **HTTP status codes**: Proper error handling for different failure types
+- **Graceful degradation**: Bot continues running even if some operations fail
+- **Detailed logging**: Comprehensive error information for debugging
 
 ### Enhanced Status Display
-- Shows channel names instead of just IDs
-- Displays target chat names in lists
-- Provides detailed authorization status
+- **Channel information**: Shows channel names instead of just IDs
+- **Target chat names**: Displays readable names in lists
+- **Authorization status**: Clear indication of user permissions
+- **Process health**: HTTP server and bot process status
 
-### Robust Error Handling
-- Automatic removal of invalid chat IDs
-- Detailed error logging
-- Graceful handling of API failures
+### Deployment Optimizations
+- **Health check endpoints**: Compatible with deployment platforms
+- **Port configuration**: Flexible port assignment via environment variables
+- **Process management**: Stable bot operation in containerized environments
+- **Graceful shutdown**: Proper cleanup on process termination
 
 ## Contributing
 

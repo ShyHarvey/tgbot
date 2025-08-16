@@ -14,9 +14,6 @@ module.exports = {
     // Logging level
     LOG_LEVEL: process.env.LOG_LEVEL || 'info',
     
-    // Polling timeout (in milliseconds)
-    POLLING_TIMEOUT: parseInt(process.env.POLLING_TIMEOUT) || 30000,
-    
     // Maximum number of target chats
     MAX_TARGET_CHATS: parseInt(process.env.MAX_TARGET_CHATS) || 100,
     

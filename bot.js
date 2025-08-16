@@ -74,6 +74,7 @@ async function forwardMessage(message) {
     }
 
     const forwardedCount = { success: 0, failed: 0 };
+    const invalidChats = new Set();
 
     console.log(`\n📤 Starting to forward message to ${targetChats.size} target chats...`);
     console.log(`📋 Target chats: ${Array.from(targetChats).join(', ')}`);
@@ -90,21 +91,39 @@ async function forwardMessage(message) {
             
             // Remove invalid chat IDs
             if (error.response && error.response.statusCode === 403) {
-                targetChats.delete(chatId);
-                console.log(`🗑️ Removed invalid chat ID: ${chatId} (403 Forbidden)`);
+                console.log(`🗑️ Chat ${chatId} is forbidden (403) - bot was removed or blocked`);
+                invalidChats.add(chatId);
             } else if (error.response && error.response.statusCode === 400) {
                 console.log(`⚠️ Bad request for chat ${chatId}: ${error.message}`);
+                // Check if it's a "chat not found" error
+                if (error.response.body && error.response.body.description && 
+                    error.response.body.description.includes('chat not found')) {
+                    console.log(`🗑️ Chat ${chatId} not found - removing from target list`);
+                    invalidChats.add(chatId);
+                }
+            } else if (error.response && error.response.statusCode === 404) {
+                console.log(`🗑️ Chat ${chatId} not found (404) - removing from target list`);
+                invalidChats.add(chatId);
             } else {
                 console.log(`⚠️ Other error for chat ${chatId}: ${error.message}`);
             }
         }
     }
 
-    console.log(`\n📊 Forwarding complete: ${forwardedCount.success} successful, ${forwardedCount.failed} failed`);
-    
-    // Save updated chat list if any were removed
-    if (forwardedCount.failed > 0) {
+    // Remove invalid chats from target list
+    if (invalidChats.size > 0) {
+        console.log(`🗑️ Removing ${invalidChats.size} invalid chats from target list...`);
+        for (const chatId of invalidChats) {
+            targetChats.delete(chatId);
+            console.log(`🗑️ Removed chat ${chatId}`);
+        }
         saveTargetChats();
+        console.log(`💾 Updated target chats list saved to file`);
+    }
+
+    console.log(`\n📊 Forwarding complete: ${forwardedCount.success} successful, ${forwardedCount.failed} failed`);
+    if (invalidChats.size > 0) {
+        console.log(`🗑️ ${invalidChats.size} invalid chats were removed from target list`);
     }
 }
 
@@ -114,24 +133,29 @@ bot.on('message', async (message) => {
     const chatType = message.chat.type;
     const fromUser = message.from;
 
-    console.log(`Received message from ${chatType} ${chatId} (${fromUser?.username || fromUser?.first_name || 'Unknown'})`);
+    console.log(`📨 Received message from ${chatType} ${chatId} (${fromUser?.username || fromUser?.first_name || 'Unknown'})`);
+    console.log(`📝 Message text: ${message.text || '[No text]'}`);
+    console.log(`🆔 Message ID: ${message.message_id}`);
 
     // Check if message is from the configured notification channel
-if (chatId.toString() === config.NOTIFICATION_CHANNEL_ID.toString()) {
-    console.log('Message from notification channel, forwarding...');
-    await forwardMessage(message);
-    return;
-}
+    if (chatId.toString() === config.NOTIFICATION_CHANNEL_ID.toString()) {
+        console.log('🎯 Message from notification channel, forwarding...');
+        await forwardMessage(message);
+        return;
+    }
 
     // Handle commands from private chats and groups
     if (chatType === 'private' || chatType === 'group' || chatType === 'supergroup') {
         const text = message.text || '';
         const userId = message.from.id;
         
+        console.log(`🔐 User ID: ${userId}, Authorized: ${isUserAuthorized(userId)}`);
+        
         // Check if user is authorized for admin commands
         const isAuthorized = isUserAuthorized(userId);
         
         if (text.startsWith('/start')) {
+            console.log('🚀 Processing /start command...');
             const welcomeMessage = `
 🤖 Welcome to the Message Forwarding Bot!
 
@@ -148,26 +172,56 @@ To add this chat as a target, send /add
 
 Note: The notification channel is configured via NOTIFICATION_CHANNEL_ID in .env file
             `;
-            await bot.sendMessage(chatId, welcomeMessage);
+            try {
+                await bot.sendMessage(chatId, welcomeMessage);
+                console.log('✅ Welcome message sent successfully');
+            } catch (error) {
+                console.error('❌ Failed to send welcome message:', error.message);
+                if (error.response && error.response.statusCode === 403) {
+                    console.log('⚠️  Bot was removed from this chat, skipping...');
+                }
+            }
         }
         else if (text === '/add') {
+            console.log('➕ Processing /add command...');
             if (!isAuthorized) {
-                await bot.sendMessage(chatId, '❌ You are not authorized to use this command.');
+                console.log('❌ User not authorized for /add command');
+                try {
+                    await bot.sendMessage(chatId, '❌ You are not authorized to use this command.');
+                } catch (error) {
+                    console.error('❌ Failed to send authorization error:', error.message);
+                }
                 return;
             }
             
             if (targetChats.has(chatId)) {
-                await bot.sendMessage(chatId, '❌ This chat is already in the target list.');
+                console.log('⚠️ Chat already in target list');
+                try {
+                    await bot.sendMessage(chatId, '❌ This chat is already in the target list.');
+                } catch (error) {
+                    console.error('❌ Failed to send already-added message:', error.message);
+                }
             } else {
                 targetChats.add(chatId);
                 saveTargetChats();
                 const chatName = message.chat.title || message.chat.username || 'this chat';
-                await bot.sendMessage(chatId, `✅ ${chatName} has been added to the target list.`);
+                console.log(`✅ Added chat ${chatName} (${chatId}) to target list`);
+                try {
+                    await bot.sendMessage(chatId, `✅ ${chatName} has been added to the target list.`);
+                } catch (error) {
+                    console.error('❌ Failed to send add confirmation:', error.message);
+                }
             }
         }
         else if (text === '/remove') {
+            console.log('➖ Processing /remove command...');
             if (!isAuthorized) {
-                await bot.sendMessage(chatId, '❌ You are not authorized to use this command.');
+                console.log('❌ User not authorized for /remove command');
+                try {
+                    await bot.sendMessage(chatId, '❌ You are not authorized to use this command.');
+                } catch (error) {
+                    console.error('❌ Failed to send authorization error:', error.message);
+                }
                 return;
             }
             
@@ -175,35 +229,75 @@ Note: The notification channel is configured via NOTIFICATION_CHANNEL_ID in .env
                 targetChats.delete(chatId);
                 saveTargetChats();
                 const chatName = message.chat.title || message.chat.username || 'this chat';
-                await bot.sendMessage(chatId, `✅ ${chatName} has been removed from the target list.`);
+                console.log(`✅ Removed chat ${chatName} (${chatId}) from target list`);
+                try {
+                    await bot.sendMessage(chatId, `✅ ${chatName} has been removed from the target list.`);
+                } catch (error) {
+                    console.error('❌ Failed to send remove confirmation:', error.message);
+                }
             } else {
-                await bot.sendMessage(chatId, '❌ This chat is not in the target list.');
+                console.log('⚠️ Chat not in target list');
+                try {
+                    await bot.sendMessage(chatId, '❌ This chat is not in the target list.');
+                } catch (error) {
+                    console.error('❌ Failed to send not-in-list message:', error.message);
+                }
             }
         }
         else if (text === '/list') {
+            console.log('📋 Processing /list command...');
             if (!isAuthorized) {
-                await bot.sendMessage(chatId, '❌ You are not authorized to use this command.');
+                console.log('❌ User not authorized for /list command');
+                try {
+                    await bot.sendMessage(chatId, '❌ You are not authorized to use this command.');
+                } catch (error) {
+                    console.error('❌ Failed to send authorization error:', error.message);
+                }
                 return;
             }
             
             if (targetChats.size === 0) {
-                await bot.sendMessage(chatId, '📝 No target chats configured.');
+                console.log('📝 No target chats configured');
+                try {
+                    await bot.sendMessage(chatId, '📝 No target chats configured.');
+                } catch (error) {
+                    console.error('❌ Failed to send no-chats message:', error.message);
+                }
             } else {
+                console.log(`📝 Listing ${targetChats.size} target chats...`);
                 const chatListPromises = Array.from(targetChats).map(async (id) => {
                     try {
                         const chatInfo = await bot.getChat(id);
                         const chatName = chatInfo.title || chatInfo.username || chatInfo.first_name || 'Unknown';
                         return `• ${chatName} (${id})`;
                     } catch (error) {
+                        console.error(`❌ Failed to get chat info for ${id}:`, error.message);
+                        // Remove invalid chat IDs
+                        if (error.response && error.response.statusCode === 403) {
+                            targetChats.delete(id);
+                            console.log(`🗑️ Removed invalid chat ID: ${id} (403 Forbidden)`);
+                        }
                         return `• Unknown chat (${id})`;
                     }
                 });
                 
                 const chatList = await Promise.all(chatListPromises);
-                await bot.sendMessage(chatId, `📝 Target chats (${targetChats.size}):\n${chatList.join('\n')}`);
+                const message = `📝 Target chats (${targetChats.size}):\n${chatList.join('\n')}`;
+                try {
+                    await bot.sendMessage(chatId, message);
+                    console.log('✅ Chat list sent successfully');
+                } catch (error) {
+                    console.error('❌ Failed to send chat list:', error.message);
+                }
+                
+                // Save updated chat list if any were removed
+                if (targetChats.size !== Array.from(targetChats).length) {
+                    saveTargetChats();
+                }
             }
         }
         else if (text === '/status') {
+            console.log('📊 Processing /status command...');
             let channelInfo = 'Not set';
             
             if (config.NOTIFICATION_CHANNEL_ID) {
@@ -211,6 +305,7 @@ Note: The notification channel is configured via NOTIFICATION_CHANNEL_ID in .env
                     const chatInfo = await bot.getChat(config.NOTIFICATION_CHANNEL_ID);
                     channelInfo = `${chatInfo.title || 'Unknown'} (${config.NOTIFICATION_CHANNEL_ID})`;
                 } catch (error) {
+                    console.error('❌ Failed to get notification channel info:', error.message);
                     channelInfo = `${config.NOTIFICATION_CHANNEL_ID} (Error getting info)`;
                 }
             }
@@ -223,22 +318,39 @@ Note: The notification channel is configured via NOTIFICATION_CHANNEL_ID in .env
 
 Configuration: ${config.NOTIFICATION_CHANNEL_ID ? '✅ Set via .env' : '❌ Not configured'}
             `;
-            await bot.sendMessage(chatId, status);
+            try {
+                await bot.sendMessage(chatId, status);
+                console.log('✅ Status message sent successfully');
+            } catch (error) {
+                console.error('❌ Failed to send status message:', error.message);
+            }
         }
         else if (text === '/test') {
+            console.log('🧪 Processing /test command...');
             try {
                 await bot.sendMessage(chatId, '🧪 Test message: Bot can send messages to this chat!');
                 await bot.sendMessage(chatId, `📊 This chat ID: ${chatId}`);
                 await bot.sendMessage(chatId, `📊 Chat type: ${chatType}`);
                 await bot.sendMessage(chatId, `📊 Chat title: ${message.chat.title || 'Private Chat'}`);
+                console.log('✅ Test messages sent successfully');
             } catch (error) {
-                await bot.sendMessage(chatId, `❌ Test failed: ${error.message}`);
+                console.error('❌ Test failed:', error.message);
+                try {
+                    await bot.sendMessage(chatId, `❌ Test failed: ${error.message}`);
+                } catch (sendError) {
+                    console.error('❌ Failed to send error message:', sendError.message);
+                }
             }
         }
-
         else if (text.startsWith('/auth')) {
+            console.log('🔐 Processing /auth command...');
             if (!isAuthorized) {
-                await bot.sendMessage(chatId, '❌ You are not authorized to use this command.');
+                console.log('❌ User not authorized for /auth command');
+                try {
+                    await bot.sendMessage(chatId, '❌ You are not authorized to use this command.');
+                } catch (error) {
+                    console.error('❌ Failed to send authorization error:', error.message);
+                }
                 return;
             }
             
@@ -247,21 +359,38 @@ Configuration: ${config.NOTIFICATION_CHANNEL_ID ? '✅ Set via .env' : '❌ Not 
                 const action = parts[1];
                 if (action === 'list') {
                     if (authorizedUsers.size === 0) {
-                        await bot.sendMessage(chatId, '📝 No authorized users configured.');
-                        await bot.sendMessage(chatId, '💡 To add authorized users, edit the AUTHORIZED_USERS variable in your .env file.');
+                        try {
+                            await bot.sendMessage(chatId, '📝 No authorized users configured.');
+                            await bot.sendMessage(chatId, '💡 To add authorized users, edit the AUTHORIZED_USERS variable in your .env file.');
+                        } catch (error) {
+                            console.error('❌ Failed to send auth list messages:', error.message);
+                        }
                     } else {
                         const userList = Array.from(authorizedUsers).map(id => `• ${id}`).join('\n');
-                        await bot.sendMessage(chatId, `📝 Authorized users (${authorizedUsers.size}):\n${userList}`);
-                        await bot.sendMessage(chatId, '💡 To modify authorized users, edit the AUTHORIZED_USERS variable in your .env file and restart the bot.');
+                        try {
+                            await bot.sendMessage(chatId, `📝 Authorized users (${authorizedUsers.size}):\n${userList}`);
+                            await bot.sendMessage(chatId, '💡 To modify authorized users, edit the AUTHORIZED_USERS variable in your .env file and restart the bot.');
+                        } catch (error) {
+                            console.error('❌ Failed to send auth list messages:', error.message);
+                        }
                     }
                 } else {
-                    await bot.sendMessage(chatId, 'Usage: /auth list');
+                    try {
+                        await bot.sendMessage(chatId, 'Usage: /auth list');
+                    } catch (error) {
+                        console.error('❌ Failed to send auth usage message:', error.message);
+                    }
                 }
             } else {
-                await bot.sendMessage(chatId, 'Usage: /auth list');
+                try {
+                    await bot.sendMessage(chatId, 'Usage: /auth list');
+                } catch (error) {
+                    console.error('❌ Failed to send auth usage message:', error.message);
+                }
             }
         }
         else if (text === '/help') {
+            console.log('❓ Processing /help command...');
             const helpMessage = `
 🤖 Message Forwarding Bot Help
 
@@ -296,10 +425,23 @@ Security:
 
 Note: You can use these commands in private chats, groups, or channels where the bot is present.
             `;
-            await bot.sendMessage(chatId, helpMessage);
+            try {
+                await bot.sendMessage(chatId, helpMessage);
+                console.log('✅ Help message sent successfully');
+            } catch (error) {
+                console.error('❌ Failed to send help message:', error.message);
+            }
         }
         else {
-            await bot.sendMessage(chatId, 'Unknown command. Send /help for available commands.');
+            console.log('❓ Unknown command received');
+            try {
+                await bot.sendMessage(chatId, 'Unknown command. Send /help for available commands.');
+            } catch (error) {
+                console.error('❌ Failed to send unknown command message:', error.message);
+                if (error.response && error.response.statusCode === 403) {
+                    console.log('⚠️  Bot was removed from this chat, skipping...');
+                }
+            }
         }
     }
 });
@@ -331,39 +473,82 @@ if (chatId.toString() === config.NOTIFICATION_CHANNEL_ID.toString()) {
 
 // Handle errors
 bot.on('error', (error) => {
-    console.error('Bot error:', error);
+    console.error('❌ Bot error:', error);
+    console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+    });
 });
 
 bot.on('polling_error', (error) => {
-    console.error('Polling error:', error);
+    console.error('❌ Polling error:', error);
+    console.error('Polling error details:', {
+        message: error.message,
+        code: error.code,
+        response: error.response ? {
+            statusCode: error.response.statusCode,
+            body: error.response.body
+        } : 'No response'
+    });
+    
+    // Don't exit on polling errors, just log them
+    console.log('⚠️  Polling error occurred, but bot will continue running...');
 });
 
 // Initialize bot
 async function startBot() {
     try {
         console.log('🤖 Starting Telegram Message Forwarding Bot...');
+        console.log('🔍 Configuration check:');
+        console.log(`   BOT_TOKEN: ${config.BOT_TOKEN ? '✅ Set' : '❌ Not set'}`);
+        console.log(`   NOTIFICATION_CHANNEL_ID: ${config.NOTIFICATION_CHANNEL_ID || '❌ Not set'}`);
+        console.log(`   TARGET_CHATS_FILE: ${config.TARGET_CHATS_FILE}`);
         
         // Load existing target chats
+        console.log('📂 Loading target chats...');
         loadTargetChats();
         
         // Load authorized users
+        console.log('👥 Loading authorized users...');
         loadAuthorizedUsers();
         
         // Get bot info
+        console.log('🔍 Getting bot info from Telegram...');
         const botInfo = await bot.getMe();
-        console.log(`Bot started: @${botInfo.username} (${botInfo.first_name})`);
-        console.log(`Notification channel ID: ${config.NOTIFICATION_CHANNEL_ID || 'Not configured'}`);
-        console.log(`Target chats loaded: ${targetChats.size}`);
+        console.log(`✅ Bot info received: @${botInfo.username} (${botInfo.first_name})`);
+        console.log(`📊 Bot ID: ${botInfo.id}`);
+        console.log(`📊 Bot username: @${botInfo.username}`);
+        console.log(`📊 Bot name: ${botInfo.first_name}`);
+        console.log(`📊 Bot can join groups: ${botInfo.can_join_groups}`);
+        console.log(`📊 Bot can read all group messages: ${botInfo.can_read_all_group_messages}`);
+        
+        console.log(`📋 Notification channel ID: ${config.NOTIFICATION_CHANNEL_ID || 'Not configured'}`);
+        console.log(`📋 Target chats loaded: ${targetChats.size}`);
         
         if (!config.NOTIFICATION_CHANNEL_ID) {
             console.log('⚠️  Warning: NOTIFICATION_CHANNEL_ID not set in .env file');
             console.log('   Please set NOTIFICATION_CHANNEL_ID in your .env file and restart the bot');
         }
         
+        console.log('🚀 Starting polling...');
         console.log('✅ Bot is running and ready to forward messages!');
+        console.log('💡 Send /start to the bot to test if it\'s working');
+        
     } catch (error) {
-        console.error('Failed to start bot:', error);
-        process.exit(1);
+        console.error('❌ Failed to start bot:', error);
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            response: error.response ? {
+                statusCode: error.response.statusCode,
+                body: error.response.body
+            } : 'No response'
+        });
+        
+        // Don't exit immediately, try to continue
+        console.log('⚠️  Bot failed to start, but will continue running...');
+        console.log('💡 Check your configuration and restart if needed');
     }
 }
 
