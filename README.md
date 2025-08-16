@@ -4,17 +4,21 @@ A Node.js Telegram bot that automatically forwards messages from a notification 
 
 ## Features
 
-- 🤖 **Automatic message forwarding** from a notification channel to multiple chats
-- 🌐 **HTTP health monitoring** with Express server for deployment platforms
-- 📝 **Persistent storage** of target chat IDs
-- 🔧 **Easy management commands** for adding/removing target chats
-- 📊 **Status monitoring** and statistics with chat names
-- 🛡️ **User authorization system** - only authorized users can manage the bot
-- ⚙️ **Configurable** via environment variables
-- 🧪 **Test commands** for debugging and verification
-- 🔍 **Enhanced logging** for troubleshooting
-- 🚀 **Deployment ready** - includes health check endpoints
-- 🛠️ **Robust error handling** with automatic cleanup of invalid chats
+### 🔐 **Authorization System**
+- **Whitelist Protection**: Only users listed in `AUTHORIZED_USERS` can add the bot to chats
+- **Automatic Chat Removal**: Bot automatically leaves chats if added by unauthorized users
+- **Admin Commands**: Restricted commands require authorization
+- **Backward Compatibility**: If no `AUTHORIZED_USERS` set, all users can use commands
+
+### 🚫 **Anti-Spam Protection**
+- **Unauthorized User Detection**: Bot detects when added by non-authorized users
+- **Automatic Exit**: Leaves unauthorized chats after 10-second warning
+- **Audit Logging**: Logs all addition/removal attempts with user details
+
+### 📱 **Message Forwarding**
+- **Multi-Chat Support**: Forward messages to multiple target chats simultaneously
+- **Automatic Cleanup**: Removes invalid/forbidden chat IDs automatically
+- **Error Handling**: Graceful handling of API errors and chat restrictions
 
 ## Prerequisites
 
@@ -82,6 +86,14 @@ npm start
 
 The bot will start both an HTTP server (for health monitoring) and the Telegram bot in separate processes.
 
+## Security Note
+
+**Important**: The bot's authorization system is designed for security:
+- Only users listed in `AUTHORIZED_USERS` can add the bot to chats or use admin commands
+- Authorization can **ONLY** be managed by editing the `.env` file
+- No bot commands exist to view or modify authorization status
+- If an unauthorized user tries to add the bot to a chat, it will automatically leave after a warning
+
 ## Architecture
 
 ### Dual Process Design
@@ -103,23 +115,32 @@ The bot will start both an HTTP server (for health monitoring) and the Telegram 
 
 ### Adding Target Chats
 
-1. Start a private chat with your bot (or add it to a group)
-2. Send `/start` to see the welcome message
-3. Send `/add` to add the current chat as a target for forwarded messages
+1. **Get your User ID**: Start a private chat with your bot and send `/test` to get your user ID
+2. **Add to AUTHORIZED_USERS**: Add your user ID to `AUTHORIZED_USERS` in `.env` file and restart the bot
+3. **Add bot to target chat**: Add the bot to the chat you want as a target
+4. **Use /add command**: Send `/add` in the target chat to add it to the forwarding list
 
-### Bot Commands
+**Note**: Only authorized users can add chats as targets. If you're not authorized, the bot will not respond to `/add` commands.
 
-#### Basic Commands
-- `/start` - Welcome message and instructions
-- `/help` - Show detailed help message
-- `/test` - Test bot functionality and get chat information
+## Bot Commands
 
-#### Management Commands (Authorized users only)
-- `/add` - Add current chat to target list
+### 🔓 **Public Commands** (Available to all users)
+- `/start` - Show welcome message and instructions
+- `/test` - Test bot functionality and get your user ID
+- `/help` - Show available commands
+
+### 🔐 **Admin Commands** (Require authorization)
+- `/add` - Add current chat as target for message forwarding
 - `/remove` - Remove current chat from target list
-- `/list` - Show all target chats with names
+- `/list` - Show all target chats
 - `/status` - Show bot status and statistics
-- `/auth list` - Show authorized users
+
+### 📋 **Command Details**
+- **Authorization Required**: Admin commands check `AUTHORIZED_USERS` from `.env`
+- **User ID Discovery**: Use `/test` command to get your user ID for authorization
+- **Chat Management**: Add/remove chats from target list for message forwarding
+- **Status Monitoring**: Check bot health, target count, and configuration
+- **Security**: Authorization can only be managed via `.env` file, not through bot commands
 
 ### How It Works
 
@@ -211,8 +232,8 @@ This bot is designed to work with deployment platforms that require HTTP endpoin
 
 4. **Commands not working**
    - Check if you're in the authorized users list
-   - Use `/auth list` to see current authorized users
    - Verify your user ID with `/test` command
+   - Ensure `AUTHORIZED_USERS` is properly configured in `.env`
 
 5. **HTTP server issues**
    - Check if port 3000 (or your custom PORT) is available
@@ -224,7 +245,6 @@ This bot is designed to work with deployment platforms that require HTTP endpoin
 - `/test` - Test bot functionality and get chat information
 - `/status` - Show detailed bot status including channel name
 - `/list` - Show all target chats with their names
-- `/auth list` - Show authorized users
 
 ### Logs
 
@@ -270,3 +290,33 @@ Feel free to submit issues and enhancement requests!
 ## License
 
 ISC License
+
+## Security & Protection
+
+### 🛡️ **Authorization System**
+The bot implements a comprehensive authorization system to prevent unauthorized access:
+
+- **Whitelist Protection**: Only users listed in `AUTHORIZED_USERS` environment variable can:
+  - Add the bot to new chats
+  - Use admin commands (`/add`, `/remove`, `/list`, `/status`)
+  - Manage target chat lists
+
+- **Automatic Protection**: If an unauthorized user tries to add the bot to a chat:
+  - Bot sends a 10-second warning message
+  - Automatically leaves the chat after warning
+  - Logs the attempt with user details for audit
+
+- **Configuration Only**: Authorization can only be managed by editing the `.env` file
+- **No Command Access**: Users cannot view or modify authorization status through bot commands
+
+### 🚫 **Anti-Spam Measures**
+- **Unauthorized User Detection**: Bot identifies when added by non-authorized users
+- **Immediate Response**: Leaves unauthorized chats to prevent abuse
+- **Audit Logging**: Comprehensive logging of all addition/removal attempts
+- **User Verification**: Checks user authorization before allowing any admin actions
+
+### 🔒 **Configuration Security**
+- **Environment Variables**: Sensitive data stored in `.env` file (not in code)
+- **User ID Validation**: Strict checking of user IDs against authorized list
+- **Chat Validation**: Automatic removal of invalid/forbidden chat IDs
+- **Error Handling**: Graceful handling of security-related errors
